@@ -1,9 +1,26 @@
+using CreekRiver.Models;
+using Microsoft.EntityFrameworkCore;
+using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Http.Json;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+// allows passing datetimes without time zone data 
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
+// allows our api endpoints to access the database through Entity Framework Core
+builder.Services.AddNpgsql<CreekRiverDbContext>(builder.Configuration["CreekRiverDbConnectionString"]);
+
+// Set the JSON serializer options
+builder.Services.Configure<JsonOptions>(options =>
+{
+    options.SerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+});
 
 var app = builder.Build();
 
@@ -16,25 +33,23 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-var summaries = new[]
+app.MapGet("/api/campsites", (CreekRiverDbContext db) =>
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+    return db.Campsites.ToList();
+});
 
-app.MapGet("/weatherforecast", () =>
+app.MapGet("/api/campsites/{id}", (CreekRiverDbContext db, int id) =>
 {
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast")
-.WithOpenApi();
+    var campsite = db.Campsites
+                     .Include(c => c.CampsiteType)
+                     .SingleOrDefault(c => c.Id == id);
+    if (campsite is null)
+    {
+        return Results.NotFound();
+    }
+    return Results.Ok(campsite);
+});
+
 
 app.Run();
 
